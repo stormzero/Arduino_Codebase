@@ -1,0 +1,450 @@
+//accelerometer test- single pixel
+//by Amanda Ghassaei 2012
+//http://www.instructables.com/id/Use-an-Accelerometer-and-Gyroscope-with-Arduino/
+
+/*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+*/
+
+
+//pin connections
+//#define ledLatchPin 6
+//#define ledClockPin 5
+//#define ledDataPin 7
+//#define buttonLatchPin 4
+//#define buttonClockPin 3
+//#define buttonDataPin 2
+
+//setup varibles for Gyroscope/Accelerometer
+int xGyroRAW;
+int yGyroRAW;
+int xAccRAW;
+int yAccRAW;
+int zAccRAW;
+
+byte xGyro;
+byte yGyro;
+byte xAcc;
+byte yAcc;
+byte zAcc;
+
+//looping variables
+byte i;
+byte j;
+byte k;
+
+//storage for led states, 4 bytes
+byte ledData[] = {0, 0, 0, 0};
+//storage for buttons, 4 bytes
+byte buttonCurrent[] = {0,0,0,0};
+byte buttonLast[] = {0,0,0,0};
+byte buttonEvent[] = {0,0,0,0};
+byte buttonState[] = {0,0,0,0};
+//button debounce counter- 16 bytes
+byte buttonDebounceCounter[4][4];
+
+//variables for accelerometer pixel movement
+boolean firstPress = 1;
+byte movingPixel[] = {0, 0, 0, 0};
+byte yPosition;
+byte xPosition;
+int timeX = 0;
+int timeY = 0;
+boolean dirX = 0;
+boolean dirY = 0;
+byte lastX = 4;
+byte lastY = 4;
+
+//MIDI variables
+int velocity = 100;
+int noteON = 144;
+int MIDIoffset = 60;
+byte currentX;
+
+
+void setup() {
+  
+  DDRD = 0xFA;//set pins D7-D4 as output, D2 as input
+  
+  Serial.begin(31250);//MIDI baud rate 
+//  Serial.begin(9600);
+  
+  cli();//stop interrupts
+
+  //set timer1 interrupt at 1kHz
+  TCCR1A = 0;// set entire TCCR1A register to 0
+  TCCR1B = 0;// same for TCCR1B
+  TCNT1  = 0;//initialize counter value to 0;
+  // set timer count for 1khz increments
+  OCR1A = 1999;// = (16*10^6) / (1000*8) - 1
+  // turn on CTC mode
+  TCCR1B |= (1 << WGM12);
+  // Set CS11 bit for 8 prescaler
+  TCCR1B |= (1 << CS11);   
+  // enable timer compare interrupt
+  TIMSK1 |= (1 << OCIE1A);
+  
+  sei();//allow interrupts
+  
+}
+
+ISR(TIMER1_COMPA_vect) {//Interrupt at freq of 1kHz
+  timeX++;//increment timeX
+  timeY++;//increment timeY
+  shift();//send data to leds
+}
+
+// buttonCheck - checks the state of a given button.
+//this buttoncheck function is largely copied from the monome 40h firmware by brian crabtree and joe lake
+void buttonCheck(byte row, byte index)
+{
+  if (((buttonCurrent[row] ^ buttonLast[row]) & (1 << index)) &&   // if the current physical button state is different from the
+  ((buttonCurrent[row] ^ buttonState[row]) & (1 << index))) {  // last physical button state AND the current debounced state
+
+    if (buttonCurrent[row] & (1 << index)) {                      // if the current physical button state is depressed
+      buttonEvent[row] = 1 << index;              // queue up a new button event immediately
+      buttonState[row] |= (1 << index);                         // and set the debounced state to down.
+  }
+    else{
+      buttonDebounceCounter[row][index] = 12;
+    }  // otherwise the button was previously depressed and now
+    // has been released so we set our debounce counter.
+  }
+  else if (((buttonCurrent[row] ^ buttonLast[row]) & (1 << index)) == 0 &&  // if the current physical button state is the same as
+  (buttonCurrent[row] ^ buttonState[row]) & (1 << index)) {        // the last physical button state but the current physical
+    // button state is different from the current debounce 
+    // state...
+    if (buttonDebounceCounter[row][index] > 0 && --buttonDebounceCounter[row][index] == 0) {  // if the the debounce counter has
+      // been decremented to 0 (meaning the
+      // the button has been up for 
+      // kButtonUpDefaultDebounceCount 
+      // iterations///
+
+      buttonEvent[row] = 1 << index;    // queue up a button state change event
+
+      if (buttonCurrent[row] & (1 << index)){          // and toggle the buttons debounce state.
+        buttonState[row] |= (1 << index);
+      }
+      else{
+        buttonState[row] &= ~(1 << index);
+      }
+    }
+  }
+}
+
+
+void shift(){
+  
+  for (i=0;i<4;i++){
+    
+    buttonLast[i] = buttonCurrent[i];
+    
+    byte dataToSend = (1 << (i+4)) | (15 & ~ledData[i]);
+      
+    // set latch pin low so the LEDs don't change while sending in bits
+    PORTD&=B10111111;//digitalWrite(ledLatchPin, LOW);
+    // shift out the bits of dataToSend 
+    //shiftOut(ledDataPin, ledClockPin, LSBFIRST, dataToSend);  
+    for (j=0;j<8;j++){
+      PORTD&=B11011111;//digitalWrite(ledClockPin,LOW);
+      //digitalWrite(ledDataPin,((dataToSend>>j)&1));
+      if ((dataToSend>>j)&1){
+        PORTD|=B10000000;
+      }
+      else{
+        PORTD&=B01111111;
+      }
+      PORTD|=B00100000;//digitalWrite(ledClockPin,HIGH);
+    }
+    //set latch pin high so the LEDs will receive new data
+    PORTD|=B01000000;//digitalWrite(ledLatchPin, HIGH);
+    
+    // SlowDown is put in here to waste a little time while we wait for the state of the output
+    // pins to settle.  Without this time wasting loop, a single button press would show up as
+    // two presses (the button and its neighbour)
+    volatile int SlowDown = 0; 
+
+    while (SlowDown < 15) 
+    { 
+      SlowDown++; 
+    } 
+      
+    //once one row has been set high, receive data from buttons
+    //set latch pin high
+    PORTD|=B00010000;//digitalWrite(buttonLatchPin, HIGH);
+    //shift in data
+    //buttonCurrent[i] = shiftIn(buttonDataPin, buttonClockPin, LSBFIRST) >> 3;
+    for (j=0;j<4;j++){
+      PORTD&=B11110111;//digitalWrite(buttonClockPin,LOW);
+      PORTD|=B00001000;//digitalWrite(buttonClockPin,HIGH);
+    }
+    for (j=0;j<4;j++){
+      PORTD&=B11110111;//digitalWrite(buttonClockPin,LOW);
+      if ((PIND>>2)&1){//digitalRead(buttonDataPin)
+        buttonCurrent[i]|=1<<j;
+      }
+      else{
+        buttonCurrent[i]&=~(1<<j); 
+      }
+      PORTD|=B00001000;//digitalWrite(buttonClockPin,HIGH);
+    }
+    //latchpin low
+    PORTD&=B11101111;//digitalWrite(buttonLatchPin, LOW);
+    
+    for (k=0;k<4;k++){
+      buttonCheck(i,k);
+    }
+  }
+  
+  //turn off leds- this way one row does not appear brighter than the rest
+  
+  // set latch pin low so the LEDs don't change while sending in bits
+  PORTD&=B10111111;//digitalWrite(ledLatchPin, LOW);
+  // shift out 0
+  //shiftOut(ledDataPin, ledClockPin, LSBFIRST, 0);  
+  for (j=0;j<8;j++){
+    PORTD&=B11011111;//digitalWrite(ledClockPin,LOW);
+    PORTD&=B01111111;
+    PORTD|=B00100000;//digitalWrite(ledClockPin,HIGH);
+  }
+  //set latch pin high so the LEDs will receive new data
+  PORTD|=B01000000;//digitalWrite(ledLatchPin, HIGH);
+}
+
+void checkFirstButton(){
+  for (byte a=0;a<4;a++){
+    if (buttonEvent[a]){
+      for (byte b=0;b<4;b++){
+        if (buttonState[a]&(1<<b)){
+          //toggle firstPress variable
+          firstPress = 0;
+          //display pressed pixel
+          ledData[a] = buttonEvent[a];
+          //store current position
+          yPosition = a;
+          xPosition = 1<<b;
+          //reset timers
+          timeX = 0;
+          timeY = 0;
+          return;
+        }
+      }
+    }
+  }
+}
+
+byte scaleAcc(int RAW){
+  if (RAW<=10 && RAW>=-10){
+    return 5;
+  }
+  else if (RAW<-10){
+    if (RAW<-50){
+      return 0;
+    }
+    else if (RAW<-40){
+      return 1;
+    }
+    else if (RAW<-30){
+      return 2;
+    }
+    else if (RAW<-20){
+      return 3;
+    }
+    else{
+      return 4;
+    }
+  }
+  else if (RAW>10){
+    if (RAW>50){
+      return 10;
+    }
+    else if (RAW>40){
+      return 9;
+    }
+    else if (RAW>30){
+      return 8;
+    }
+    else if (RAW>20){
+      return 7;
+    }
+    else{
+      return 6;
+    }
+  }
+}
+
+void checkAccelerometer(){
+  //read values
+  xGyroRAW = analogRead(A1);
+  yGyroRAW = analogRead(A0);
+  xAccRAW = analogRead(A4);
+  yAccRAW = analogRead(A3);
+  zAccRAW = analogRead(A2);
+  
+  //offset data
+  xGyroRAW = 317-xGyroRAW;
+  yGyroRAW = 183-yGyroRAW;
+  xAccRAW = 282-xAccRAW;
+  yAccRAW = 282-yAccRAW;
+  zAccRAW = 282-zAccRAW;
+  
+  if (xAccRAW>0){
+    dirX = 1;
+  }
+  else{
+    dirX = 0;
+  }
+  if (yAccRAW>0){
+    dirY = 1;
+  }
+  else{
+    dirY = 0;
+  }
+  
+  //convert to 0-10
+  xAcc = scaleAcc(xAccRAW);
+  yAcc = scaleAcc(yAccRAW);
+}
+
+int getTime(byte acceleration){
+  switch (acceleration){
+    case 0://max - acceleration
+    return 25;
+    break;
+    case 1:
+    return 25;
+    break;
+    case 2:
+    return 50;
+    break;
+    case 3:
+    return 100;
+    break;
+    case 4:
+    return 150;
+    break;
+    case 5://lying flat
+    return 0;
+    break;
+    case 6:
+    return 150;
+    break;
+    case 7:
+    return 100;
+    break;
+    case 8:
+    return 50;
+    break;
+    case 9:
+    return 25;
+    break;
+    case 10://max + acceleration
+    return 25;
+    break;
+  }
+}
+
+void moveXPixel(int timeComp){
+  if (timeComp==0){
+  }
+  else{
+    if (timeX>timeComp){
+      timeX = 0;
+      if (dirX){
+        if (xPosition==8){
+        }
+        else{
+          xPosition = xPosition<<1;
+        }
+      }
+      else{
+        if (xPosition==1){
+        }
+        else{
+          xPosition = xPosition>>1;
+        }
+      }
+    }
+  }
+}
+
+void moveYPixel(int timeComp){
+  if (timeComp==0){
+  }
+  else{
+    if (timeY>timeComp){
+      timeY = 0;
+      if (dirY){
+        if (yPosition==3){
+        }
+        else{
+          yPosition = yPosition+=1;
+        }
+      }
+      else{
+        if (yPosition==0){
+        }
+        else{
+          yPosition = yPosition-=1;
+        }
+      }
+    }
+  }
+}
+
+void checkMIDI(){
+  //convert xPosition to decimal
+  switch (xPosition){
+    case 1:
+    currentX = 0;
+    break;
+    case 2:
+    currentX = 1;
+    break;
+    case 4:
+    currentX = 2;
+    break;
+    case 8:
+    currentX = 3;
+    break;
+  }
+  //if pixel has moved send midi
+  if (lastX != currentX || lastY != yPosition){
+    MIDImessage(noteON,(lastX+5*lastY+MIDIoffset),0);//turn off last note
+    MIDImessage(noteON,(currentX+5*yPosition+MIDIoffset),velocity);//turn on next note
+  }
+  lastX = currentX;
+  lastY = yPosition;
+}
+  
+
+void MIDImessage(int command, int MIDInote, int MIDIvelocity) {//send s a MIDI message
+  Serial.write(command);//send note on or note off command 
+  Serial.write(MIDInote);//send pitch data
+  Serial.write(MIDIvelocity);//send velocity data
+}
+
+void loop() {
+  if (firstPress){
+    checkFirstButton();
+  }
+  else{
+    for (byte pixel=0;pixel<4;pixel++){
+      if (pixel==yPosition){
+        ledData[pixel]=xPosition;
+      }
+      else{
+        ledData[pixel] = 0;
+      }
+    }
+    checkAccelerometer();
+    moveXPixel(getTime(xAcc));
+    moveYPixel(getTime(yAcc));
+    checkMIDI();
+  }
+}
+

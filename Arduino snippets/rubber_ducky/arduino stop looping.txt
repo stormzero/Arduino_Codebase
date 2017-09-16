@@ -1,0 +1,73 @@
+
+
+boolean replay = true;
+
+
+
+void setup() {
+  // don't need to set anything up to use DigiKeyboard
+}
+void loop() {
+
+  if (replay == true){
+
+    Serial.println("i own you!");
+  }
+  
+   replay = false;
+   }
+   
+   ----------------------------------------------------------------------------------------------
+   ////////////////////////////***************fancy stop loop
+   
+   
+   boolean stop_it = false;
+   
+   void setup (){
+   
+   serial.begin(9600);
+   }
+   boolean stop_main_loop(){
+   
+   if (stop_it == false){
+   Serial.println("inside the stop main loop function);
+   }
+   stop_it = true ;
+   return stop_it;
+   
+   }
+void loop(){
+stop_it = stop_main_loop();
+
+
+}   
+   
+   
+   ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+   
+ #  includexxxx
+   boolean replay = true;
+
+   
+   
+   
+  end with
+
+
+//looping codes
+// for(;;){/*empty loop forevaa*/}
+//while(1){/*empty loop foreva*/}
+
+}  
+   
+   
+   
+   
+   
+   
+   
+   
+   
+   
+   
+   

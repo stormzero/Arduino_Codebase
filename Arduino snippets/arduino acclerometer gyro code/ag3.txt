@@ -1,0 +1,48 @@
+//Analog Gyro w Serial
+//by Amanda Ghassaei
+//http://www.instructables.com/id/Use-an-Accelerometer-and-Gyroscope-with-Arduino/
+//August 2012
+
+/*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+*/ 
+ 
+ //setup variables for Gyroscope
+ int xRate;
+ int x45;
+ int yRate;
+ int y45;
+ int Vref;
+
+void setup(){
+  Serial.begin(9600);//start serial
+}
+
+void loop(){
+  
+  //read values
+  x45 = analogRead(A4);
+  y45 = analogRead(A3);
+  xRate = analogRead(A2);
+  yRate = analogRead(A1);
+  Vref = analogRead(A0);
+
+  //print values
+  Serial.print("xRate ");
+  Serial.println(287-xRate);
+  Serial.print("yRate ");
+  Serial.println(256-yRate);
+  Serial.print("x4.5 ");
+  Serial.println(317-x45);
+  Serial.print("y4.5 ");
+  Serial.println(172-y45);
+  Serial.println(" ");
+  
+  delay(500);
+
+}
+
